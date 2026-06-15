@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirDraw — Draw in the Air with AI</title>
+  <meta name="description" content="Draw in the air using your hand and AI-powered hand tracking. No stylus, no touch — just your finger." />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- MediaPipe Hands via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <!-- ─── Ambient Background ─── -->
+  <div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- ─── Header ─── -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon">✦</span>
+      <span class="logo-text">AirDraw</span>
+      <span class="logo-badge">AI</span>
+    </div>
+    <div class="header-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">Initializing…</span>
+    </div>
+  </header>
+
+  <!-- ─── Main App Container ─── -->
+  <main class="app-container">
+
+    <!-- ─── Canvas Layer (webcam + drawing) ─── -->
+    <div class="canvas-wrapper" id="canvasWrapper">
+      <!-- Hidden video feed -->
+      <video id="webcam" autoplay playsinline muted></video>
+
+      <!-- Webcam mirror output from MediaPipe -->
+      <canvas id="outputCanvas"></canvas>
+
+      <!-- Drawing layer (transparent, on top) -->
+      <canvas id="drawCanvas"></canvas>
+
+      <!-- Gesture hint overlay -->
+      <div class="gesture-hint" id="gestureHint">
+        <div class="hint-icon">☝️</div>
+        <p>Raise your <strong>index finger</strong> to draw<br>Make a <strong>fist</strong> to pause</p>
+      </div>
+
+      <!-- Cursor dot that follows finger -->
+      <div class="finger-cursor" id="fingerCursor"></div>
+
+      <!-- Undo/Redo floating buttons -->
+      <div class="float-actions">
+        <button class="float-btn" id="undoBtn" title="Undo (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+        </button>
+        <button class="float-btn" id="redoBtn" title="Redo (Ctrl+Y)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 0 4-4h12"/></svg>
+        </button>
+        <button class="float-btn" id="fullscreenBtn" title="Fullscreen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ─── Toolbar ─── -->
+    <aside class="toolbar glass">
+
+      <!-- Tools -->
+      <section class="tool-section">
+        <label class="section-label">Tool</label>
+        <div class="tool-group">
+          <button class="tool-btn active" id="penBtn" data-tool="pen" title="Pen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+            <span>Pen</span>
+          </button>
+          <button class="tool-btn" id="eraserBtn" data-tool="eraser" title="Eraser">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l10-10 7 7-1.5 1.5"/><path d="M6.0001 10L14 18"/></svg>
+            <span>Eraser</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Colors -->
+      <section class="tool-section">
+        <label class="section-label">Color</label>
+        <div class="color-grid" id="colorGrid">
+          <button class="color-swatch active" style="--c:#00f5ff" data-color="#00f5ff" title="Cyan"></button>
+          <button class="color-swatch" style="--c:#ff2d78" data-color="#ff2d78" title="Pink"></button>
+          <button class="color-swatch" style="--c:#7c3aff" data-color="#7c3aff" title="Purple"></button>
+          <button class="color-swatch" style="--c:#00ff87" data-color="#00ff87" title="Green"></button>
+          <button class="color-swatch" style="--c:#ff9500" data-color="#ff9500" title="Orange"></button>
+          <button class="color-swatch" style="--c:#ffdd00" data-color="#ffdd00" title="Yellow"></button>
+          <button class="color-swatch" style="--c:#ffffff" data-color="#ffffff" title="White"></button>
+          <button class="color-swatch" style="--c:#ff4444" data-color="#ff4444" title="Red"></button>
+        </div>
+        <div class="custom-color-row">
+          <label class="section-label" style="margin:0">Custom</label>
+          <input type="color" id="customColor" value="#00f5ff" title="Pick any color" />
+        </div>
+      </section>
+
+      <!-- Brush Size -->
+      <section class="tool-section">
+        <label class="section-label">Size — <span id="sizeVal">6</span>px</label>
+        <input type="range" id="brushSize" min="1" max="40" value="6" class="slider" />
+      </section>
+
+      <!-- Opacity -->
+      <section class="tool-section">
+        <label class="section-label">Opacity — <span id="opacityVal">100</span>%</label>
+        <input type="range" id="brushOpacity" min="10" max="100" value="100" class="slider" />
+      </section>
+
+      <!-- Actions -->
+      <section class="tool-section">
+        <label class="section-label">Actions</label>
+        <div class="action-group">
+          <button class="action-btn" id="clearBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Clear
+          </button>
+          <button class="action-btn accent" id="saveBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Save PNG
+          </button>
+        </div>
+      </section>
+
+      <!-- Sensitivity -->
+      <section class="tool-section">
+        <label class="section-label">Draw Sensitivity</label>
+        <div class="sensitivity-group" id="sensitivityGroup">
+          <button class="sens-btn active" data-sens="0.02">Low</button>
+          <button class="sens-btn" data-sens="0.01">Mid</button>
+          <button class="sens-btn" data-sens="0.005">High</button>
+        </div>
+      </section>
+
+      <!-- Shortcuts hint -->
+      <section class="tool-section shortcuts">
+        <label class="section-label">Shortcuts</label>
+        <div class="shortcut-list">
+          <span><kbd>Ctrl Z</kbd> Undo</span>
+          <span><kbd>Ctrl Y</kbd> Redo</span>
+          <span><kbd>E</kbd> Eraser</span>
+          <span><kbd>P</kbd> Pen</span>
+          <span><kbd>Del</kbd> Clear</span>
+          <span><kbd>F</kbd> Fullscreen</span>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ─── Toast Notification ─── -->
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
